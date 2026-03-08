@@ -1,0 +1,5 @@
+package com.jagdishgeneralstore.jgs
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()
