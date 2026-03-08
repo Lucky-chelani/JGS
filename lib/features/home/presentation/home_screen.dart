@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -1175,22 +1176,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
           const SizedBox(height: 16),
           SizedBox(
-            height: 316,
+            height: 350,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: 6,
               separatorBuilder: (context, _) => const SizedBox(width: 14),
               itemBuilder: (context, i) {
-                return _FlashSaleCard(
-                  index: i,
-                  onAddToCart: (product) => _addToCart(
-                    _CatalogProduct(
-                      id: product.id,
-                      name: product.name,
-                      price: product.price,
-                      rating: 4.6,
-                      image: product.image,
-                      backgroundColor: const Color(0xFFF5F8FF),
+                return SizedBox(
+                  width: 250,
+                  child: _FlashSaleCard(
+                    index: i,
+                    onAddToCart: (product) => _addToCart(
+                      _CatalogProduct(
+                        id: product.id,
+                        name: product.name,
+                        price: product.price,
+                        rating: 4.6,
+                        image: product.image,
+                        backgroundColor: const Color(0xFFF5F8FF),
+                      ),
                     ),
                   ),
                 );
@@ -2761,11 +2765,14 @@ class _FlashSaleCardState extends State<_FlashSaleCard> {
         curve: Curves.easeOutCubic,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 220),
-          width: 224,
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0xFFE2E8FA)),
+            border: Border.all(
+              color: _hovered
+                  ? const Color(0xFFD2DCFA)
+                  : const Color(0xFFE7ECFA),
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: _hovered ? 0.14 : 0.06),
@@ -2782,7 +2789,7 @@ class _FlashSaleCardState extends State<_FlashSaleCard> {
                 Stack(
                   children: [
                     Container(
-                      height: 144,
+                      height: 158,
                       width: double.infinity,
                       decoration: BoxDecoration(
                         color: const Color(0xFFF7F9FF),
@@ -2898,23 +2905,57 @@ class _FlashSaleCardState extends State<_FlashSaleCard> {
                           ),
                         ),
                         const Spacer(),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () => widget.onAddToCart(product),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF0D1B4B),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 11),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            InkWell(
+                              onTap: () {},
+                              borderRadius: BorderRadius.circular(14),
+                              child: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF25D366),
+                                  borderRadius: BorderRadius.circular(14),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF25D366).withValues(alpha: 0.30),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 6),
+                                    ),
+                                  ],
+                                ),
+                                child: const FaIcon(
+                                  FontAwesomeIcons.whatsapp,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
                               ),
                             ),
-                            child: const Text(
-                              'Add to Cart',
-                              style: TextStyle(fontWeight: FontWeight.w700),
+                            const SizedBox(width: 10),
+                            InkWell(
+                              onTap: () => widget.onAddToCart(product),
+                              borderRadius: BorderRadius.circular(14),
+                              child: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0D1B4B),
+                                  borderRadius: BorderRadius.circular(14),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF0D1B4B).withValues(alpha: 0.30),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 6),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.add_shopping_cart_rounded,
+                                  color: AppTheme.accentColor,
+                                  size: 20,
+                                ),
+                              ),
                             ),
-                          ),
+                          ],
                         ),
                       ],
                     ),
@@ -3169,30 +3210,56 @@ class _ProductCardState extends State<_ProductCard> {
                               ),
                             ),
                           ),
-                          InkWell(
-                            onTap: () => widget.onAddToCart(product),
-                            borderRadius: BorderRadius.circular(14),
-                            child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF0D1B4B),
+                          Row(
+                            children: [
+                              InkWell(
+                                onTap: () {},
                                 borderRadius: BorderRadius.circular(14),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(
-                                      0xFF0D1B4B,
-                                    ).withValues(alpha: 0.30),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 6),
+                                child: Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF25D366),
+                                    borderRadius: BorderRadius.circular(14),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF25D366).withValues(alpha: 0.30),
+                                        blurRadius: 12,
+                                        offset: const Offset(0, 6),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                  child: const FaIcon(
+                                    FontAwesomeIcons.whatsapp,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                ),
                               ),
-                              child: const Icon(
-                                Icons.add_shopping_cart_rounded,
-                                color: AppTheme.accentColor,
-                                size: 20,
+                              const SizedBox(width: 10),
+                              InkWell(
+                                onTap: () => widget.onAddToCart(product),
+                                borderRadius: BorderRadius.circular(14),
+                                child: Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF0D1B4B),
+                                    borderRadius: BorderRadius.circular(14),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF0D1B4B).withValues(alpha: 0.30),
+                                        blurRadius: 12,
+                                        offset: const Offset(0, 6),
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Icon(
+                                    Icons.add_shopping_cart_rounded,
+                                    color: AppTheme.accentColor,
+                                    size: 20,
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ],
                       ),
