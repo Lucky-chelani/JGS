@@ -18,29 +18,72 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Jagdish General Store — Premium beauty, skincare, makeup & fragrances. Shop online or visit us in-store.">
+
+  <!-- Preconnect to Google Fonts for faster font loading -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="jgs">
+  <meta name="apple-mobile-web-app-title" content="Jagdish General Store">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Theme color for browser chrome -->
+  <meta name="theme-color" content="#FDF8F5">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>jgs</title>
+  <title>Jagdish General Store — Beauty & Care</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Loading splash styles -->
+  <style>
+    body { margin: 0; background-color: #FDF8F5; overflow: hidden; }
+    #loading {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background-color: #FDF8F5;
+      transition: opacity 0.4s ease;
+    }
+    #loading.fade-out { opacity: 0; pointer-events: none; }
+    #loading .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #E8D5D0;
+      border-top-color: #B76E79;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    #loading p {
+      margin-top: 18px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px; font-weight: 600;
+      color: #5A3A40; letter-spacing: 0.5px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <!-- Loading splash shown while Flutter initializes -->
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>Loading JGS...</p>
+  </div>
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <script>
+    // Remove loading splash once Flutter renders first frame
+    window.addEventListener('flutter-first-frame', function() {
+      var loader = document.getElementById('loading');
+      if (loader) {
+        loader.classList.add('fade-out');
+        setTimeout(function() { loader.remove(); }, 400);
+      }
+    });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

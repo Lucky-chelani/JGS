@@ -2,7 +2,7 @@ name: jgs
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+publish_to: "none" # Remove this line if you wish to publish to pub.dev
 
 # The following defines the version and build number for your application.
 # A version number is three numbers separated by dots, like 1.2.43
@@ -34,16 +34,9 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  firebase_core: ^4.5.0
-  firebase_auth: ^6.2.0
-  cloud_firestore: ^6.1.3
   provider: ^6.1.5+1
   go_router: ^17.1.0
   google_fonts: ^8.0.2
-  url_launcher: ^6.3.2
-  shared_preferences: ^2.5.4
-  carousel_slider: ^5.1.2
-  flutter_svg: ^2.2.4
   font_awesome_flutter: ^10.12.0
 
 dev_dependencies:
@@ -62,7 +55,6 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
-
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
@@ -73,6 +65,7 @@ flutter:
     - assets/images/
     - assets/images/products/
     - assets/images/hero_banner.png
+    - assets/jgs.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

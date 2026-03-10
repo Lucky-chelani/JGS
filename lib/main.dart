@@ -3,10 +3,11 @@ import 'package:provider/provider.dart';
 import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
 import 'features/cart/providers/cart_provider.dart';
+import 'features/admin/providers/admin_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Initialize Firebase (wrapped in a try-catch for now so the UI can run without it)
   try {
     // await Firebase.initializeApp(
@@ -27,6 +28,7 @@ class JGSApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => CartProvider()),
+        ChangeNotifierProvider(create: (_) => AdminProvider()),
       ],
       child: MaterialApp.router(
         title: 'Jagdish General Store',
