@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../providers/auth_provider.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -59,12 +61,21 @@ class _LoginScreenState extends State<LoginScreen>
       _error = null;
       _loading = true;
     });
-    // TODO: Integrate Firebase phone auth here
-    Future.delayed(const Duration(milliseconds: 800), () {
-      if (!mounted) return;
-      setState(() => _loading = false);
-      context.push('/otp', extra: phone);
-    });
+    Provider.of<AuthProvider>(context, listen: false).sendOtp(
+      phoneNumber: phone,
+      onCodeSent: () {
+        if (!mounted) return;
+        setState(() => _loading = false);
+        context.push('/otp', extra: phone);
+      },
+      onError: (error) {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _error = error;
+        });
+      },
+    );
   }
 
   @override

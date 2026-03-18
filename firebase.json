@@ -1,0 +1,54 @@
+{
+	"firestore": {
+		"rules": "firestore.rules"
+	},
+	"storage": {
+		"rules": "storage.rules"
+	},
+	"functions": {
+		"source": "functions"
+	},
+	"hosting": {
+		"public": "build/web",
+		"ignore": [
+			"firebase.json",
+			"**/.*",
+			"**/node_modules/**"
+		],
+		"rewrites": [
+			{
+				"source": "**",
+				"destination": "/index.html"
+			}
+		]
+	},
+	"flutter": {
+		"platforms": {
+			"android": {
+				"default": {
+					"projectId": "jgs-store",
+					"appId": "1:466530259496:android:39f6b2d5bd9a27a51b9b1d",
+					"fileOutput": "android/app/google-services.json"
+				}
+			},
+			"ios": {
+				"default": {
+					"projectId": "jgs-store",
+					"appId": "1:466530259496:ios:63af3268845fe4661b9b1d",
+					"uploadDebugSymbols": false,
+					"fileOutput": "ios/Runner/GoogleService-Info.plist"
+				}
+			},
+			"dart": {
+				"lib/firebase_options.dart": {
+					"projectId": "jgs-store",
+					"configurations": {
+						"android": "1:466530259496:android:39f6b2d5bd9a27a51b9b1d",
+						"ios": "1:466530259496:ios:63af3268845fe4661b9b1d",
+						"web": "1:466530259496:web:600200d2594be9fb1b9b1d"
+					}
+				}
+			}
+		}
+	}
+}

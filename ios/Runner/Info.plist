@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>JGS needs your location to auto-fill your delivery address (pincode, city, state) for faster checkout.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>JGS needs your location to auto-fill your delivery address for faster checkout.</string>
 </dict>
 </plist>

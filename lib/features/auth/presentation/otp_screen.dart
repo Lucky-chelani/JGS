@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../providers/auth_provider.dart';
 
 class OtpScreen extends StatefulWidget {
   final String phoneNumber;
@@ -82,7 +84,7 @@ class _OtpScreenState extends State<OtpScreen>
 
   String get _otp => _controllers.map((c) => c.text).join();
 
-  void _onVerifyOtp() {
+  Future<void> _onVerifyOtp() async {
     if (_otp.length != 6) {
       setState(() => _error = 'Please enter the complete 6-digit code');
       return;
@@ -91,17 +93,34 @@ class _OtpScreenState extends State<OtpScreen>
       _error = null;
       _loading = true;
     });
-    // TODO: Integrate Firebase OTP verification here
-    Future.delayed(const Duration(milliseconds: 800), () {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final success = await auth.verifyOtp(_otp);
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (success) {
+      await auth.refreshProfile();
       if (!mounted) return;
-      setState(() => _loading = false);
-      context.go('/');
-    });
+      if (auth.isProfileComplete) {
+        context.go('/');
+      } else {
+        context.go('/profile');
+      }
+    } else {
+      setState(() {
+        _error = auth.error;
+      });
+    }
   }
 
   void _onResend() {
     if (_resendSeconds > 0) return;
-    // TODO: Resend OTP via Firebase
+    Provider.of<AuthProvider>(context, listen: false).resendOtp(
+      phoneNumber: widget.phoneNumber,
+      onError: (error) {
+        if (!mounted) return;
+        setState(() => _error = error);
+      },
+    );
     _startResendTimer();
   }
 

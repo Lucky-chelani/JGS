@@ -50,4 +50,31 @@ class Announcement {
       imageUrl: imageUrl ?? this.imageUrl,
     );
   }
+
+  Map<String, dynamic> toMap() => {
+        'title': title,
+        'subtitle': subtitle,
+        'body': body,
+        'date': date,
+        'tag': tag,
+        'category': category,
+        'tagColor': tagColor.toARGB32(),
+        'icon': icon.codePoint,
+        'imageUrl': imageUrl,
+      };
+
+  factory Announcement.fromMap(String id, Map<String, dynamic> map) {
+    return Announcement(
+      id: id,
+      title: map['title']?.toString() ?? '',
+      subtitle: map['subtitle']?.toString() ?? '',
+      body: map['body']?.toString() ?? '',
+      date: map['date']?.toString() ?? '',
+      tag: map['tag']?.toString() ?? '',
+      category: map['category']?.toString() ?? '',
+      tagColor: Color((map['tagColor'] as num?)?.toInt() ?? 0xFF000000),
+      icon: IconData((map['icon'] as num?)?.toInt() ?? 0xe3e7, fontFamily: 'MaterialIcons'),
+      imageUrl: map['imageUrl']?.toString(),
+    );
+  }
 }

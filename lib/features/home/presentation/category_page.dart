@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/theme/app_theme.dart';
 import '../../../shared/models/product_model.dart';
 import '../../../shared/widgets/product_card.dart';
+import '../../../shared/widgets/cart_toast.dart';
 import '../../cart/providers/cart_provider.dart';
+import '../../admin/providers/admin_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  CATEGORY PAGE — unified product listing with filters
@@ -139,8 +140,8 @@ class _CategoryPageState extends State<CategoryPage> {
     super.dispose();
   }
 
-  List<CatalogProduct> get _filteredProducts {
-    var products = CatalogProduct.all;
+  List<CatalogProduct> _filteredProducts(List<CatalogProduct> sourceProducts) {
+    var products = sourceProducts;
 
     // Search query filter
     if (_searchQuery.isNotEmpty) {
@@ -210,44 +211,14 @@ class _CategoryPageState extends State<CategoryPage> {
   }
 
   void _addToCart(CatalogProduct p) {
-    Provider.of<CartProvider>(
-      context,
-      listen: false,
-    ).addItem(p.id, p.name, p.price, '');
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 3),
-          content: Row(
-            children: [
-              const Icon(
-                Icons.check_circle,
-                color: AppTheme.accentColor,
-                size: 20,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  '${p.name} added to cart',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xFF2D1B20),
-          action: SnackBarAction(
-            label: 'VIEW CART',
-            textColor: AppTheme.accentColor,
-            onPressed: () => context.push('/cart'),
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-      );
+    Provider.of<CartProvider>(context, listen: false).addItem(
+      p.id,
+      p.name,
+      p.effectivePrice,
+      p.image,
+      variantLabel: p.variants.isNotEmpty ? p.variants.first.sizeLabel : null,
+    );
+    showCartToast(context, p.name);
   }
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -256,7 +227,9 @@ class _CategoryPageState extends State<CategoryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final products = _filteredProducts;
+    final allProducts = Provider.of<AdminProvider>(context).products;
+    final source = allProducts.isNotEmpty ? allProducts : CatalogProduct.all;
+    final products = _filteredProducts(source);
     final w = MediaQuery.sizeOf(context).width;
     final compact = w < 760;
 
@@ -455,7 +428,14 @@ class _CategoryPageState extends State<CategoryPage> {
     );
   }
 
-  List<CatalogProduct> get products => _filteredProducts;
+  List<CatalogProduct> get products {
+    final allProducts = Provider.of<AdminProvider>(
+      context,
+      listen: false,
+    ).products;
+    final source = allProducts.isNotEmpty ? allProducts : CatalogProduct.all;
+    return _filteredProducts(source);
+  }
 
   bool get _hasActiveFilters {
     return (_selectedCollection != null) ||

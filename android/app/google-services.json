@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "466530259496",
+    "project_id": "jgs-store",
+    "storage_bucket": "jgs-store.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:466530259496:android:39f6b2d5bd9a27a51b9b1d",
+        "android_client_info": {
+          "package_name": "com.jagdishgeneralstore.jgs"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBqR7ihUwinfbT0eFWrlDMmafxcx_WgY8M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

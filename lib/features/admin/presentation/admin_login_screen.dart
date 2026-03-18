@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+
 import '../../../core/theme/app_theme.dart';
+import '../../auth/providers/auth_provider.dart';
 
 class AdminLoginScreen extends StatefulWidget {
   const AdminLoginScreen({super.key});
@@ -34,28 +37,47 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
     super.dispose();
   }
 
-  void _login() {
+  Future<void> _login() async {
     setState(() {
       _error = null;
       _loading = true;
     });
 
-    // Small delay to feel more real
-    Future.delayed(const Duration(milliseconds: 600), () {
-      if (!mounted) return;
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
 
-      final id = _idController.text.trim();
-      final pass = _passController.text;
+    final id = _idController.text.trim();
+    final pass = _passController.text;
 
-      if (id == _adminId && pass == _adminPass) {
-        context.go('/admin/panel');
-      } else {
-        setState(() {
-          _error = 'Invalid ID or password';
-          _loading = false;
-        });
-      }
-    });
+    if (id != _adminId || pass != _adminPass) {
+      setState(() {
+        _error = 'Invalid ID or password';
+        _loading = false;
+      });
+      return;
+    }
+
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    if (!auth.isLoggedIn) {
+      setState(() {
+        _error = 'Please login with OTP first to verify your identity.';
+        _loading = false;
+      });
+      return;
+    }
+
+    final adminOk = await auth.ensureAdminAccess(adminId: id, adminPass: pass);
+    if (!mounted) return;
+    if (!adminOk) {
+      setState(() {
+        _error =
+            'Access denied. This OTP account is not in admins/{uid}. Ask super admin to whitelist your UID.';
+        _loading = false;
+      });
+      return;
+    }
+
+    context.go('/admin/panel');
   }
 
   @override

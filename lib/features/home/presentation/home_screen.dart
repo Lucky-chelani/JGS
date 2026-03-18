@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -7,8 +8,12 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/logo_assets.dart';
 import '../../../shared/models/product_model.dart';
+import '../../../shared/models/review_model.dart';
 import '../../../shared/widgets/product_card.dart';
+import '../../../shared/widgets/cart_toast.dart';
 import '../../cart/providers/cart_provider.dart';
+import '../../admin/providers/admin_provider.dart';
+import '../../auth/providers/auth_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HOME SCREEN
@@ -30,6 +35,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
 
   bool _isScrolled = false;
+  bool _introCompleted = false;
   int _selectedCategory = 0;
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
@@ -38,10 +44,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void initState() {
     super.initState();
 
-    _introController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1600),
-    )..forward();
+    _introController =
+        AnimationController(
+            vsync: this,
+            duration: const Duration(milliseconds: 1600),
+          )
+          ..forward().then((_) {
+            if (mounted) setState(() => _introCompleted = true);
+          });
 
     _floatController = AnimationController(
       vsync: this,
@@ -76,6 +86,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ── Staggered entrance animation helper ────────────────────────────────
 
   Widget _animatedSection({required int order, required Widget child}) {
+    if (_introCompleted) return child;
     final start = (order * 0.07).clamp(0.0, 0.75).toDouble();
     final end = math.min(start + 0.28, 1.0);
     final anim = CurvedAnimation(
@@ -97,44 +108,58 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ── Cart shortcut ──────────────────────────────────────────────────────
 
   void _addToCart(CatalogProduct p) {
-    Provider.of<CartProvider>(
-      context,
-      listen: false,
-    ).addItem(p.id, p.name, p.price, '');
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 3),
-          content: Row(
-            children: [
-              const Icon(
-                Icons.check_circle,
-                color: AppTheme.accentColor,
-                size: 20,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  '${p.name} added to cart',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xFF2D1B20),
-          action: SnackBarAction(
-            label: 'VIEW CART',
-            textColor: AppTheme.accentColor,
-            onPressed: () => context.push('/cart'),
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-      );
+    Provider.of<CartProvider>(context, listen: false).addItem(
+      p.id,
+      p.name,
+      p.effectivePrice,
+      p.image,
+      variantLabel: p.variants.isNotEmpty ? p.variants.first.sizeLabel : null,
+    );
+    showCartToast(context, p.name);
+  }
+
+  void _onFooterLinkTap(String link) {
+    switch (link) {
+      case 'Makeup':
+      case 'Skincare':
+      case 'Haircare':
+      case 'Fragrances':
+      case 'Bath & Body':
+        context.push('/category', extra: {'category': link, 'title': link});
+        return;
+      case 'Track Order':
+        context.push('/orders');
+        return;
+      case 'Returns':
+        context.push('/returns');
+        return;
+      case 'Shipping Info':
+        context.push('/shipping-info');
+        return;
+      case 'FAQs':
+        context.push('/faqs');
+        return;
+      case 'Contact Us':
+        context.push('/contact-us');
+        return;
+      case 'About JGS':
+      case 'Our Story':
+        context.push('/about-us');
+        return;
+      case 'Careers':
+        context.push('/careers');
+        return;
+      case 'Terms':
+        context.push('/terms');
+        return;
+      case 'Privacy':
+        context.push('/privacy-policy');
+        return;
+      default:
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$link page is coming soon.')));
+    }
   }
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -145,6 +170,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final screenW = MediaQuery.sizeOf(context).width;
     final contentW = math.min(screenW, 1240.0);
+    final sectionBuilders = <Widget Function()>[
+      () => _buildPromoStrip(context),
+      () => _buildHeroSection(context),
+      () => _buildTrustMetrics(context),
+      () => _buildFeaturedBrands(context),
+      () => _buildCategorySection(context),
+      () => _buildBestsellers(context),
+      () => _buildShopByConcern(context),
+      () => _buildNewArrivals(context),
+      () => _buildBrandBanner(context),
+      () => _buildPopularProducts(context),
+      () => _buildCustomerReviews(context),
+      () => _buildMembershipSection(context),
+    ];
 
     return Scaffold(
       backgroundColor: const Color(0xFFFDF8F5),
@@ -159,73 +198,32 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             children: [
               _buildStickyNavBar(context),
               Expanded(
-                child: SingleChildScrollView(
+                child: ListView.builder(
                   controller: _scrollController,
-                  physics: const BouncingScrollPhysics(),
-                  child: Column(
-                    children: [
-                      Center(
+                  cacheExtent: 1400,
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
+                  itemCount: sectionBuilders.length + 2,
+                  itemBuilder: (context, index) {
+                    if (index < sectionBuilders.length) {
+                      return Center(
                         child: ConstrainedBox(
                           constraints: BoxConstraints(maxWidth: contentW),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _animatedSection(
-                                order: 0,
-                                child: _buildPromoStrip(context),
-                              ),
-                              _animatedSection(
-                                order: 1,
-                                child: _buildHeroSection(context),
-                              ),
-                              _animatedSection(
-                                order: 2,
-                                child: _buildTrustMetrics(context),
-                              ),
-                              _animatedSection(
-                                order: 3,
-                                child: _buildFeaturedBrands(context),
-                              ),
-                              _animatedSection(
-                                order: 4,
-                                child: _buildCategorySection(context),
-                              ),
-                              _animatedSection(
-                                order: 5,
-                                child: _buildBestsellers(context),
-                              ),
-                              _animatedSection(
-                                order: 6,
-                                child: _buildShopByConcern(context),
-                              ),
-                              _animatedSection(
-                                order: 7,
-                                child: _buildNewArrivals(context),
-                              ),
-                              _animatedSection(
-                                order: 8,
-                                child: _buildBrandBanner(context),
-                              ),
-                              _animatedSection(
-                                order: 9,
-                                child: _buildPopularProducts(context),
-                              ),
-                              _animatedSection(
-                                order: 10,
-                                child: _buildCustomerReviews(context),
-                              ),
-                              _animatedSection(
-                                order: 11,
-                                child: _buildMembershipSection(context),
-                              ),
-                              const SizedBox(height: 24),
-                            ],
+                          child: RepaintBoundary(
+                            child: _animatedSection(
+                              order: index,
+                              child: sectionBuilders[index](),
+                            ),
                           ),
                         ),
-                      ),
-                      _buildFooter(context, contentW),
-                    ],
-                  ),
+                      );
+                    }
+                    if (index == sectionBuilders.length) {
+                      return const SizedBox(height: 24);
+                    }
+                    return _buildFooter(context, contentW);
+                  },
                 ),
               ),
             ],
@@ -314,11 +312,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   onTap: () => context.push('/orders'),
                 ),
               if (!compact || w >= 430) const SizedBox(width: 6),
-              _NavActionButton(
-                icon: Icons.person_outline_rounded,
-                label: 'Login',
-                compact: compact,
-                onTap: () => context.push('/login'),
+              Consumer<AuthProvider>(
+                builder: (context, auth, _) {
+                  if (auth.isLoggedIn) {
+                    final name = auth.profile.name;
+                    final label = name.isNotEmpty
+                        ? (compact
+                              ? name.split(' ').first
+                              : name.split(' ').first)
+                        : 'Profile';
+                    return _NavActionButton(
+                      icon: Icons.person_rounded,
+                      label: label,
+                      compact: compact,
+                      onTap: () => context.push('/profile'),
+                    );
+                  }
+                  return _NavActionButton(
+                    icon: Icons.person_outline_rounded,
+                    label: 'Login',
+                    compact: compact,
+                    onTap: () => context.push('/login'),
+                  );
+                },
               ),
               const SizedBox(width: 6),
               Consumer<CartProvider>(
@@ -735,7 +751,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           runSpacing: 12,
           children: [
             ElevatedButton(
-              onPressed: () {},
+              onPressed: () => context.push(
+                '/category',
+                extra: <String, dynamic>{'title': 'All Products'},
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFB76E79),
                 foregroundColor: Colors.white,
@@ -765,7 +784,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
             ),
             OutlinedButton(
-              onPressed: () {},
+              onPressed: () => context.push('/bride-to-be'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: const Color(0xFF5A3A40),
                 side: const BorderSide(color: Color(0xFFD4A0A6), width: 1.5),
@@ -778,7 +797,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
               ),
               child: Text(
-                'View Offers',
+                'Bride To Be',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: smallMobile ? 14 : 15,
+                ),
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => context.push('/salon-owners'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF5A3A40),
+                side: const BorderSide(color: Color(0xFFD4A0A6), width: 1.5),
+                padding: EdgeInsets.symmetric(
+                  horizontal: smallMobile ? 20 : 24,
+                  vertical: smallMobile ? 16 : 18,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              icon: const Icon(Icons.storefront_outlined, size: 18),
+              label: Text(
+                'Salon Owners',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: smallMobile ? 14 : 15,
@@ -1105,47 +1146,67 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ═════════════════════════════════════════════════════════════════════════
 
   Widget _buildBestsellers(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 34, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(
-            badge: 'Customer favorites',
-            title: 'Bestsellers',
-            subtitle:
-                'Our most-loved products with thousands of 5-star ratings.',
-            actionLabel: 'See All',
-            onAction: () => context.push(
-              '/category',
-              extra: <String, dynamic>{
-                'title': 'Bestsellers',
-                'sort': 'Popularity',
-                'collection': 'bestseller',
-              },
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 370,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: 6,
-              separatorBuilder: (_, __) => const SizedBox(width: 14),
-              itemBuilder: (_, i) => SizedBox(
-                width: 240,
-                child: ProductCard(
-                  product: CatalogProduct
-                      .bestsellers[i % CatalogProduct.bestsellers.length],
-                  badge: 'BESTSELLER',
-                  badgeColor: const Color(0xFFE8B4B8),
-                  onAddToCart: _addToCart,
+    return Selector<AdminProvider, List<CatalogProduct>>(
+      selector: (_, admin) => admin.products,
+      builder: (context, products, _) {
+        final bestsellers = products
+            .where((p) => p.tags.contains('bestseller'))
+            .toList();
+        final items = (bestsellers.isNotEmpty ? bestsellers : products)
+            .take(10)
+            .toList(growable: false);
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 34, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SectionHeader(
+                badge: 'Customer favorites',
+                title: 'Bestsellers',
+                subtitle:
+                    'Our most-loved products with thousands of 5-star ratings.',
+                actionLabel: 'See All',
+                onAction: () => context.push(
+                  '/category',
+                  extra: <String, dynamic>{
+                    'title': 'Bestsellers',
+                    'sort': 'Popularity',
+                    'collection': 'bestseller',
+                  },
                 ),
               ),
-            ),
+              const SizedBox(height: 16),
+              if (items.isEmpty)
+                _buildProductsPlaceholder(
+                  'No bestseller products added by admin yet.',
+                )
+              else
+                SizedBox(
+                  height: 370,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    cacheExtent: 520,
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 14),
+                    itemBuilder: (_, i) => SizedBox(
+                      width: 240,
+                      child: ProductCard(
+                        product: items[i],
+                        badge: _badgeForProduct(
+                          items[i],
+                          fallback: 'BESTSELLER',
+                        ),
+                        badgeColor: _badgeColorForProduct(items[i]),
+                        onAddToCart: _addToCart,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1225,47 +1286,64 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ═════════════════════════════════════════════════════════════════════════
 
   Widget _buildNewArrivals(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 34, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(
-            badge: 'Just launched',
-            title: 'New Arrivals',
-            subtitle: 'Fresh drops handpicked by the JGS beauty team.',
-            actionLabel: 'View All',
-            onAction: () => context.push(
-              '/category',
-              extra: <String, dynamic>{
-                'title': 'New Arrivals',
-                'sort': 'Newest',
-                'collection': 'new_arrival',
-              },
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 370,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: 5,
-              separatorBuilder: (_, __) => const SizedBox(width: 14),
-              itemBuilder: (_, i) => SizedBox(
-                width: 240,
-                child: ProductCard(
-                  product: CatalogProduct
-                      .newArrivals[i % CatalogProduct.newArrivals.length],
-                  badge: 'NEW',
-                  badgeColor: Colors.white,
-                  badgeTextColor: Colors.black,
-                  onAddToCart: _addToCart,
+    return Selector<AdminProvider, List<CatalogProduct>>(
+      selector: (_, admin) => admin.products,
+      builder: (context, products, _) {
+        final newArrivals = products
+            .where((p) => p.tags.contains('new_arrival'))
+            .toList();
+        final items = (newArrivals.isNotEmpty ? newArrivals : products)
+            .take(10)
+            .toList(growable: false);
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 34, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SectionHeader(
+                badge: 'Just launched',
+                title: 'New Arrivals',
+                subtitle: 'Fresh drops handpicked by the JGS beauty team.',
+                actionLabel: 'View All',
+                onAction: () => context.push(
+                  '/category',
+                  extra: <String, dynamic>{
+                    'title': 'New Arrivals',
+                    'sort': 'Newest',
+                    'collection': 'new_arrival',
+                  },
                 ),
               ),
-            ),
+              const SizedBox(height: 16),
+              if (items.isEmpty)
+                _buildProductsPlaceholder(
+                  'No new arrivals published by admin yet.',
+                )
+              else
+                SizedBox(
+                  height: 370,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    cacheExtent: 520,
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 14),
+                    itemBuilder: (_, i) => SizedBox(
+                      width: 240,
+                      child: ProductCard(
+                        product: items[i],
+                        badge: _badgeForProduct(items[i], fallback: 'NEW'),
+                        badgeColor: _badgeColorForProduct(items[i]),
+                        badgeTextColor: Colors.black,
+                        onAddToCart: _addToCart,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1438,46 +1516,88 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ═════════════════════════════════════════════════════════════════════════
 
   Widget _buildPopularProducts(BuildContext context) {
-    final all = [...CatalogProduct.bestsellers, ...CatalogProduct.newArrivals];
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 34, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SectionHeader(
-            badge: 'Most loved',
-            title: 'Popular Products',
-            subtitle:
-                'Top-performing picks based on ratings and repeat purchases.',
-            actionLabel: 'View All',
-            onAction: () => context.push(
-              '/category',
-              extra: <String, dynamic>{
-                'title': 'Popular Products',
-                'sort': 'Popularity',
-                'collection': 'popular',
-              },
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 370,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: 8,
-              separatorBuilder: (_, __) => const SizedBox(width: 14),
-              itemBuilder: (_, i) => SizedBox(
-                width: 240,
-                child: ProductCard(
-                  product: all[i % all.length],
-                  onAddToCart: _addToCart,
+    return Selector<AdminProvider, List<CatalogProduct>>(
+      selector: (_, admin) => admin.products,
+      builder: (context, products, _) {
+        final dynamicPopular = products
+            .where((p) => p.tags.contains('popular'))
+            .toList();
+        final sortedByRating = [...products]
+          ..sort((a, b) => b.rating.compareTo(a.rating));
+        final all =
+            (dynamicPopular.isNotEmpty ? dynamicPopular : sortedByRating)
+                .take(12)
+                .toList(growable: false);
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 34, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SectionHeader(
+                badge: 'Most loved',
+                title: 'Popular Products',
+                subtitle:
+                    'Top-performing picks based on ratings and repeat purchases.',
+                actionLabel: 'View All',
+                onAction: () => context.push(
+                  '/category',
+                  extra: <String, dynamic>{
+                    'title': 'Popular Products',
+                    'sort': 'Popularity',
+                    'collection': 'popular',
+                  },
                 ),
               ),
-            ),
+              const SizedBox(height: 16),
+              if (all.isEmpty)
+                _buildProductsPlaceholder('No popular products available yet.')
+              else
+                SizedBox(
+                  height: 370,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    cacheExtent: 520,
+                    itemCount: all.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 14),
+                    itemBuilder: (_, i) => SizedBox(
+                      width: 240,
+                      child: ProductCard(
+                        product: all[i],
+                        badge: _badgeForProduct(all[i]),
+                        badgeColor: _badgeColorForProduct(all[i]),
+                        onAddToCart: _addToCart,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
+  }
+
+  String? _badgeForProduct(CatalogProduct product, {String? fallback}) {
+    if (product.tags.contains('bestseller')) return 'BESTSELLER';
+    if (product.tags.contains('new_arrival')) return 'NEW';
+    if (product.tags.contains('popular')) return 'POPULAR';
+    if (product.effectiveDiscountPct >= 20)
+      return '${product.effectiveDiscountPct}% OFF';
+    return fallback;
+  }
+
+  Color? _badgeColorForProduct(CatalogProduct product) {
+    if (product.tags.contains('bestseller')) {
+      return const Color(0xFFE8B4B8);
+    }
+    if (product.tags.contains('new_arrival')) {
+      return Colors.white;
+    }
+    if (product.tags.contains('popular')) {
+      return const Color(0xFF4ECDC4);
+    }
+    return null;
   }
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -1485,30 +1605,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ═════════════════════════════════════════════════════════════════════════
 
   Widget _buildCustomerReviews(BuildContext context) {
-    const reviews = [
-      _ReviewData(
-        name: 'Priya S.',
-        rating: 5,
-        text:
-            'Amazing quality products! The sunscreen I ordered is genuine and the delivery was super fast. Best beauty store online.',
-        product: 'Lakme Sunscreen SPF 50',
-      ),
-      _ReviewData(
-        name: 'Ananya R.',
-        rating: 5,
-        text:
-            'Love the range of skincare products. The prices are much better than other stores and everything arrived sealed.',
-        product: 'Biotique Vitamin C Serum',
-      ),
-      _ReviewData(
-        name: 'Meera K.',
-        rating: 4,
-        text:
-            'Great experience shopping here. The product recommendations were spot on for my skin type. Will definitely order again!',
-        product: 'LOreal Night Cream',
-      ),
-    ];
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 34, 16, 0),
       child: Column(
@@ -1525,17 +1621,78 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           ),
           const SizedBox(height: 16),
-          SizedBox(
-            height: 220,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: reviews.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 14),
-              itemBuilder: (_, i) =>
-                  SizedBox(width: 320, child: _ReviewCard(review: reviews[i])),
-            ),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('reviews')
+                .where('approved', isEqualTo: true)
+                .orderBy('createdAt', descending: true)
+                .limit(10)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const SizedBox(
+                  height: 30,
+                  child: LinearProgressIndicator(minHeight: 2),
+                );
+              }
+
+              final reviewDocs = snapshot.data?.docs ?? const [];
+              final reviews = reviewDocs
+                  .map((d) => ProductReview.fromMap(d.id, d.data()))
+                  .where((r) => r.comment.trim().isNotEmpty)
+                  .map(
+                    (r) => _ReviewData(
+                      name: r.userName,
+                      rating: r.rating.clamp(1, 5),
+                      text: r.comment,
+                      product: r.productName,
+                    ),
+                  )
+                  .toList(growable: false);
+
+              if (reviews.isEmpty) {
+                return _buildProductsPlaceholder(
+                  'No customer reviews posted yet.',
+                );
+              }
+
+              return SizedBox(
+                height: 220,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: reviews.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 14),
+                  itemBuilder: (_, i) => SizedBox(
+                    width: 320,
+                    child: _ReviewCard(review: reviews[i]),
+                  ),
+                ),
+              );
+            },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildProductsPlaceholder(String text) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: const Color(0xFFE8D5D0).withValues(alpha: 0.6),
+        ),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: const Color(0xFF5A3A40).withValues(alpha: 0.72),
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -1548,6 +1705,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final w = MediaQuery.sizeOf(context).width;
     final compact = w < 920;
     final tiny = w < 430;
+    final isMember = Provider.of<AuthProvider>(context).profile.isMember;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 34, 16, 0),
@@ -1586,9 +1744,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   ? Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildMembershipCopy(compact: true, tiny: tiny),
+                        _buildMembershipCopy(
+                          compact: true,
+                          tiny: tiny,
+                          isMember: isMember,
+                        ),
                         const SizedBox(height: 16),
-                        _buildMembershipPanel(compact: true),
+                        _buildMembershipPanel(
+                          compact: true,
+                          isMember: isMember,
+                        ),
                       ],
                     )
                   : Row(
@@ -1598,12 +1763,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           child: _buildMembershipCopy(
                             compact: false,
                             tiny: false,
+                            isMember: isMember,
                           ),
                         ),
                         const SizedBox(width: 26),
                         Expanded(
                           flex: 2,
-                          child: _buildMembershipPanel(compact: false),
+                          child: _buildMembershipPanel(
+                            compact: false,
+                            isMember: isMember,
+                          ),
                         ),
                       ],
                     ),
@@ -1614,7 +1783,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildMembershipCopy({required bool compact, required bool tiny}) {
+  Widget _buildMembershipCopy({
+    required bool compact,
+    required bool tiny,
+    required bool isMember,
+  }) {
     final titleSize = compact ? (tiny ? 26.0 : 30.0) : 38.0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1651,7 +1824,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
         const SizedBox(height: 14),
         Text(
-          'Join the Beauty Club for exclusive perks',
+          isMember
+              ? 'You are a JGS Member!'
+              : 'Join the Beauty Club for exclusive perks',
           style: TextStyle(
             color: const Color(0xFF2D1B20),
             fontSize: titleSize,
@@ -1662,7 +1837,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
         const SizedBox(height: 10),
         Text(
-          'Unlock member-only pricing, early access to new launches, and personalized beauty recommendations.',
+          isMember
+              ? 'Enjoy your exclusive 10% discount on all orders and early access to new launches!'
+              : 'Unlock member-only pricing, early access to new launches, and personalized beauty recommendations.',
           style: TextStyle(
             color: const Color(0xFF5A3A40).withValues(alpha: 0.70),
             fontSize: compact ? 14 : 15,
@@ -1720,7 +1897,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildMembershipPanel({required bool compact}) {
+  Widget _buildMembershipPanel({
+    required bool compact,
+    required bool isMember,
+  }) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -1785,30 +1965,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _benefitRow('Personalized skincare tips'),
           const SizedBox(height: 8),
           _benefitRow('Priority support for orders'),
-          const SizedBox(height: 14),
-          compact
-              ? Column(
-                  children: [
-                    _newsletterInput(),
-                    const SizedBox(height: 10),
-                    _newsletterButton(fullWidth: true),
-                  ],
-                )
-              : Row(
-                  children: [
-                    Expanded(child: _newsletterInput()),
-                    const SizedBox(width: 10),
-                    _newsletterButton(fullWidth: false),
-                  ],
-                ),
-          const SizedBox(height: 8),
-          Text(
-            'No spam. One-click unsubscribe anytime.',
-            style: TextStyle(
-              color: const Color(0xFF5A3A40).withValues(alpha: 0.50),
-              fontSize: 11,
+          if (!isMember) ...[
+            compact
+                ? Column(
+                    children: [
+                      _newsletterInput(),
+                      const SizedBox(height: 10),
+                      _newsletterButton(fullWidth: true),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(child: _newsletterInput()),
+                      const SizedBox(width: 10),
+                      _newsletterButton(fullWidth: false),
+                    ],
+                  ),
+            const SizedBox(height: 8),
+            Text(
+              'No spam. One-click unsubscribe anytime.',
+              style: TextStyle(
+                color: const Color(0xFF5A3A40).withValues(alpha: 0.50),
+                fontSize: 11,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1928,7 +2109,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   children: [
                     _buildFooterBrand(),
                     const SizedBox(height: 24),
-                    const Wrap(
+                    Wrap(
                       spacing: 24,
                       runSpacing: 24,
                       children: [
@@ -1936,6 +2117,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           width: 140,
                           child: _FooterColumn(
                             title: 'SHOP',
+                            onLinkTap: _onFooterLinkTap,
                             links: [
                               'Makeup',
                               'Skincare',
@@ -1949,6 +2131,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           width: 140,
                           child: _FooterColumn(
                             title: 'HELP',
+                            onLinkTap: _onFooterLinkTap,
                             links: [
                               'Track Order',
                               'Returns',
@@ -1962,6 +2145,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           width: 140,
                           child: _FooterColumn(
                             title: 'COMPANY',
+                            onLinkTap: _onFooterLinkTap,
                             links: [
                               'About JGS',
                               'Our Story',
@@ -1981,9 +2165,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   children: [
                     Expanded(flex: 2, child: _buildFooterBrand()),
                     const SizedBox(width: 34),
-                    const Expanded(
+                    Expanded(
                       child: _FooterColumn(
                         title: 'SHOP',
+                        onLinkTap: _onFooterLinkTap,
                         links: [
                           'Makeup',
                           'Skincare',
@@ -1993,9 +2178,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ],
                       ),
                     ),
-                    const Expanded(
+                    Expanded(
                       child: _FooterColumn(
                         title: 'HELP',
+                        onLinkTap: _onFooterLinkTap,
                         links: [
                           'Track Order',
                           'Returns',
@@ -2005,9 +2191,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ],
                       ),
                     ),
-                    const Expanded(
+                    Expanded(
                       child: _FooterColumn(
                         title: 'COMPANY',
+                        onLinkTap: _onFooterLinkTap,
                         links: [
                           'About JGS',
                           'Our Story',
@@ -2136,8 +2323,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Image.memory(LogoAssets.darkLogoBytes, height: 44, fit: BoxFit.contain),
-        const SizedBox(height: 18),
+        // Logo
+        SizedBox(
+          child: Image.asset('assets/jgs.png', height: 40, fit: BoxFit.contain),
+        ),
+        const SizedBox(height: 14),
         const Text(
           'Jagdish General Store',
           style: TextStyle(
@@ -2146,16 +2336,118 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             fontWeight: FontWeight.w900,
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         Text(
-          'Your premium destination for beauty, skincare, and personal care. Trusted by 50,000+ customers since 1995.',
+          'Premium beauty, skincare & personal care.\nTrusted by 50,000+ customers since 1972.',
           style: TextStyle(
             color: const Color(0xFF5A3A40).withValues(alpha: 0.65),
-            fontSize: 14,
-            height: 1.6,
+            fontSize: 13,
+            height: 1.55,
           ),
         ),
+        const SizedBox(height: 20),
+
+        // ── Carrier / Delivery info ──────────────────────────────
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.55),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: const Color(0xFFE8D5D0).withValues(alpha: 0.60),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header row
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFB76E79).withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.local_shipping_outlined,
+                      color: Color(0xFFB76E79),
+                      size: 16,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'DELIVERY INFO',
+                    style: TextStyle(
+                      color: Color(0xFFB76E79),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Delivery rows
+              _footerDeliveryRow(
+                Icons.schedule_outlined,
+                'Ships in 2–5 business days',
+              ),
+              const SizedBox(height: 8),
+              _footerDeliveryRow(
+                Icons.currency_rupee_rounded,
+                'Free delivery on orders above ₹499',
+              ),
+              const SizedBox(height: 8),
+              _footerDeliveryRow(
+                Icons.payments_outlined,
+                'Cash on Delivery available',
+              ),
+              const SizedBox(height: 8),
+              _footerDeliveryRow(
+                Icons.location_on_outlined,
+                'Chhindwara & all major cities · PAN India',
+              ),
+
+              const SizedBox(height: 14),
+              Divider(
+                color: const Color(0xFFE8D5D0).withValues(alpha: 0.5),
+                height: 1,
+              ),
+              const SizedBox(height: 12),
+
+              // Contact
+              _footerDeliveryRow(
+                Icons.chat_rounded,
+                'WhatsApp: +91 98765 43210',
+                iconColor: const Color(0xFF25D366),
+              ),
+              const SizedBox(height: 8),
+              _footerDeliveryRow(
+                Icons.store_outlined,
+                'Chhindwara, Madhya Pradesh — Open 9 AM – 9 PM',
+              ),
+            ],
+          ),
+        ),
+
         const SizedBox(height: 16),
+
+        // ── Trust badges ──────────────────────────────────────────
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            _trustBadge(Icons.verified_outlined, 'COD'),
+            _trustBadge(Icons.lock_outlined, 'Secure'),
+            _trustBadge(Icons.thumb_up_outlined, '100% Genuine'),
+          ],
+        ),
+
+        const SizedBox(height: 16),
+
+        // Social icons
         const Row(
           children: [
             _SocialIcon(icon: Icons.facebook),
@@ -2166,6 +2458,58 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _footerDeliveryRow(IconData icon, String label, {Color? iconColor}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          icon,
+          size: 14,
+          color: iconColor ?? const Color(0xFF5A3A40).withValues(alpha: 0.55),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: const Color(0xFF5A3A40).withValues(alpha: 0.75),
+              fontSize: 12.5,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _trustBadge(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFB76E79).withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: const Color(0xFFE8D5D0).withValues(alpha: 0.55),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: const Color(0xFFB76E79)),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF2D1B20),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2977,7 +3321,12 @@ class _ReviewCard extends StatelessWidget {
 class _FooterColumn extends StatelessWidget {
   final String title;
   final List<String> links;
-  const _FooterColumn({required this.title, required this.links});
+  final void Function(String link) onLinkTap;
+  const _FooterColumn({
+    required this.title,
+    required this.links,
+    required this.onLinkTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2998,7 +3347,7 @@ class _FooterColumn extends StatelessWidget {
           (l) => Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: InkWell(
-              onTap: () {},
+              onTap: () => onLinkTap(l),
               child: Text(
                 l,
                 style: TextStyle(

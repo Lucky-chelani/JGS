@@ -4,6 +4,13 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import '../../cart/providers/cart_provider.dart';
+import '../../auth/providers/auth_provider.dart';
+import '../../../shared/services/email_service.dart';
+import '../../../shared/services/location_service.dart';
+import '../../orders/providers/orders_provider.dart';
+import '../../admin/providers/admin_provider.dart';
+import '../../../shared/models/order_model.dart';
+import '../../../shared/models/coupon_model.dart';
 
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key});
@@ -15,12 +22,18 @@ class CheckoutScreen extends StatefulWidget {
 class _CheckoutScreenState extends State<CheckoutScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
   final _pincodeController = TextEditingController();
   final _cityController = TextEditingController();
+  final _stateController = TextEditingController();
+  final _couponController = TextEditingController();
 
+  String? _couponError;
   bool _isLoading = false;
+  bool _isLocating = false;
+  String? _locationError;
 
   static const _bg = Color(0xFFFDF8F5);
   static const _textPrimary = Color(0xFF2D1B20);
@@ -30,12 +43,78 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   static const _accentLight = Color(0xFFE8B4B8);
 
   @override
+  void initState() {
+    super.initState();
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    if (auth.isLoggedIn) {
+      final profile = auth.profile;
+      final phone = auth.user?.phoneNumber ?? '';
+      if (profile.name.isNotEmpty) _nameController.text = profile.name;
+      if (profile.email.isNotEmpty) _emailController.text = profile.email;
+      if (phone.length > 3) {
+        _phoneController.text = phone.replaceFirst('+91', '');
+      }
+      if (profile.pincode.isNotEmpty) _pincodeController.text = profile.pincode;
+      if (profile.city.isNotEmpty) _cityController.text = profile.city;
+      if (profile.address.isNotEmpty) _addressController.text = profile.address;
+    }
+  }
+
+  Future<void> _fetchCurrentLocation() async {
+    setState(() {
+      _isLocating = true;
+      _locationError = null;
+    });
+    try {
+      final result = await LocationService.getCurrentLocation();
+      if (!mounted) return;
+      setState(() {
+        if (result.pincode.isNotEmpty) _pincodeController.text = result.pincode;
+        if (result.city.isNotEmpty) _cityController.text = result.city;
+        if (result.state.isNotEmpty) _stateController.text = result.state;
+        _isLocating = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  result.city.isNotEmpty
+                      ? 'Location detected: ${result.city}'
+                      : 'Location detected! Fields auto-filled.',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF4CAF50),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _locationError = e.toString();
+        _isLocating = false;
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _nameController.dispose();
+    _emailController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
     _pincodeController.dispose();
     _cityController.dispose();
+    _stateController.dispose();
+    _couponController.dispose();
     super.dispose();
   }
 
@@ -51,7 +130,78 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
     setState(() => _isLoading = false);
 
-    Provider.of<CartProvider>(context, listen: false).clear();
+    final cart = Provider.of<CartProvider>(context, listen: false);
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final ordersProvider = Provider.of<OrdersProvider>(context, listen: false);
+    
+    // Sync membership status
+    cart.setPremiumMember(auth.profile.isMember);
+
+    // Get order ID
+    final orderId = 'ORD-${DateTime.now().millisecondsSinceEpoch}';
+
+    final profile = auth.profile.email.isEmpty
+        ? UserProfile(
+            uid: auth.user!.uid,
+            name: _nameController.text.trim(),
+            email: _emailController.text.trim(),
+            address: _addressController.text.trim(),
+            pincode: _pincodeController.text.trim(),
+            city: _cityController.text.trim(),
+          )
+        : auth.profile;
+
+    // Update profile if email was missing
+    if (auth.profile.email.isEmpty) {
+      await auth.saveProfile(profile);
+    }
+
+    final now = DateTime.now();
+    final newOrder = Order(
+      id: orderId,
+      userId: auth.user!.uid,
+      customerName: _nameController.text.trim(),
+      phone: _phoneController.text.trim(),
+      address: _addressController.text.trim(),
+      pincode: _pincodeController.text.trim(),
+      city: _cityController.text.trim(),
+      total: cart.finalAmount,
+      date: '${now.day} ${_getMonthMap()[now.month]} ${now.year}',
+      status: 'Pending',
+      items: cart.items.values
+          .map((i) => OrderLineItem(
+                name: i.title,
+                qty: i.quantity,
+                price: i.price,
+              ))
+          .toList(),
+    );
+
+    final success = await ordersProvider.saveOrder(newOrder);
+
+    if (!success) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ordersProvider.error ?? 'Failed to place order.')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    setState(() => _isLoading = false);
+
+    // Trigger email (Background)
+    EmailService.sendOrderConfirmation(
+      profile: profile, 
+      items: cart.items.values.toList(), 
+      total: cart.finalAmount, 
+      orderId: orderId,
+    );
+
+    cart.clear();
 
     // Show success dialog
     showDialog(
@@ -126,6 +276,46 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ),
       ),
     );
+  }
+
+  void _applyCoupon() {
+    final code = _couponController.text.trim().toUpperCase();
+    if (code.isEmpty) return;
+
+    final cart = Provider.of<CartProvider>(context, listen: false);
+    final admin = Provider.of<AdminProvider>(context, listen: false);
+
+    final coupon = admin.coupons.firstWhere(
+      (c) => c.code.toUpperCase() == code && c.isActive,
+      orElse: () => const Coupon(id: '', code: '', discountAmount: 0),
+    );
+
+    if (coupon.id.isNotEmpty) {
+      if (!coupon.isValid(cart.totalAmount)) {
+        setState(() {
+          _couponError = cart.totalAmount < coupon.minOrderAmount
+              ? 'Min order for this coupon is ₹${coupon.minOrderAmount.toStringAsFixed(0)}'
+              : 'Coupon is expired or inactive';
+        });
+        return;
+      }
+      cart.applyCoupon(coupon);
+      _couponController.clear();
+      setState(() {
+        _couponError = null;
+      });
+    } else {
+      setState(() {
+        _couponError = 'Invalid or inactive coupon';
+      });
+    }
+  }
+
+  void _removeCoupon() {
+    Provider.of<CartProvider>(context, listen: false).removeCoupon();
+    setState(() {
+      _couponError = null;
+    });
   }
 
   @override
@@ -241,6 +431,20 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                 ),
                                 const SizedBox(height: 16),
                                 _buildTextField(
+                                  controller: _emailController,
+                                  label: 'Email Address',
+                                  icon: Icons.email_outlined,
+                                  keyboardType: TextInputType.emailAddress,
+                                  validator: (v) {
+                                    if (v == null || v.isEmpty) return 'Enter email';
+                                    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(v)) {
+                                      return 'Enter a valid email';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 16),
+                                _buildTextField(
                                   controller: _phoneController,
                                   label: 'Phone Number',
                                   icon: Icons.phone_outlined,
@@ -263,6 +467,44 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                       v!.isEmpty ? 'Enter address' : null,
                                 ),
                                 const SizedBox(height: 16),
+
+                                // ── Use Location button ──
+                                _buildLocationButton(),
+                                if (_locationError != null) ...[  
+                                  const SizedBox(height: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFF6B6B)
+                                          .withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: const Color(0xFFFF6B6B)
+                                            .withValues(alpha: 0.3)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.error_outline,
+                                            color: Color(0xFFFF6B6B), size: 16),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            _locationError!,
+                                            style: const TextStyle(
+                                              color: Color(0xFFFF6B6B),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 16),
+
+                                // ── Pincode + City ──
                                 Row(
                                   children: [
                                     Expanded(
@@ -292,6 +534,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                       ),
                                     ),
                                   ],
+                                ),
+                                const SizedBox(height: 16),
+
+                                // ── State ──
+                                _buildTextField(
+                                  controller: _stateController,
+                                  label: 'State',
+                                  icon: Icons.map_outlined,
+                                  validator: (v) =>
+                                      v!.isEmpty ? 'Enter state' : null,
                                 ),
                               ],
                             ),
@@ -367,6 +619,169 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               ],
                             ),
                           ),
+
+                          const SizedBox(height: 28),
+
+                          // ── Coupon section ──
+                          _buildSectionTitle('Apply Coupon'),
+                          const SizedBox(height: 16),
+                          if (cart.appliedCoupon != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                                horizontal: 18,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF4CAF50).withValues(
+                                  alpha: 0.08,
+                                ),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: const Color(0xFF4CAF50).withValues(
+                                    alpha: 0.3,
+                                  ),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.local_offer_rounded,
+                                    color: Color(0xFF4CAF50),
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          cart.appliedCoupon!.code,
+                                          style: const TextStyle(
+                                            color: Color(0xFF4CAF50),
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '₹${cart.couponDiscountAmount.toStringAsFixed(0)} off applied',
+                                          style: TextStyle(
+                                            color: const Color(
+                                              0xFF4CAF50,
+                                            ).withValues(alpha: 0.7),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: _removeCoupon,
+                                    child: const Icon(
+                                      Icons.close_rounded,
+                                      color: Color(0xFF4CAF50),
+                                      size: 20,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: _couponError != null
+                                      ? const Color(0xFFFF6B6B)
+                                      : _border.withValues(alpha: 0.6),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  const SizedBox(width: 16),
+                                  Icon(
+                                    Icons.local_offer_outlined,
+                                    size: 20,
+                                    color: _textSecondary.withValues(
+                                      alpha: 0.4,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _couponController,
+                                      textCapitalization:
+                                          TextCapitalization.characters,
+                                      style: const TextStyle(
+                                        color: _textPrimary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 1,
+                                      ),
+                                      decoration: InputDecoration(
+                                        hintText: 'Enter coupon code',
+                                        hintStyle: TextStyle(
+                                          color: _textSecondary.withValues(
+                                            alpha: 0.35,
+                                          ),
+                                          fontWeight: FontWeight.w500,
+                                          letterSpacing: 0,
+                                        ),
+                                        border: InputBorder.none,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              vertical: 16,
+                                            ),
+                                      ),
+                                      onChanged: (_) {
+                                        if (_couponError != null) {
+                                          setState(() => _couponError = null);
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: _applyCoupon,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 20,
+                                        vertical: 14,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _accent,
+                                        borderRadius: const BorderRadius.only(
+                                          topRight: Radius.circular(15),
+                                          bottomRight: Radius.circular(15),
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        'Apply',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (_couponError != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              _couponError!,
+                              style: const TextStyle(
+                                color: Color(0xFFFF6B6B),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
 
                           const SizedBox(height: 28),
 
@@ -498,6 +913,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                   'FREE',
                                   valueColor: const Color(0xFF4CAF50),
                                 ),
+                                if (cart.memberDiscountAmount > 0) ...[
+                                  const SizedBox(height: 10),
+                                  _buildPriceRow(
+                                    'Member Discount (10%)',
+                                    '-₹${cart.memberDiscountAmount.toStringAsFixed(2)}',
+                                    valueColor: const Color(0xFF4CAF50),
+                                  ),
+                                ],
+                                if (cart.couponDiscountAmount > 0) ...[
+                                  const SizedBox(height: 10),
+                                  _buildPriceRow(
+                                    'Coupon (${cart.appliedCoupon?.code})',
+                                    '-₹${cart.couponDiscountAmount.toStringAsFixed(2)}',
+                                    valueColor: const Color(0xFF4CAF50),
+                                  ),
+                                ],
                                 const SizedBox(height: 14),
                                 Divider(
                                   color: _border.withValues(alpha: 0.5),
@@ -518,7 +949,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                       ),
                                     ),
                                     Text(
-                                      '₹${cart.totalAmount.toStringAsFixed(2)}',
+                                      '₹${cart.finalAmount.toStringAsFixed(2)}',
                                       style: TextStyle(
                                         fontFamily: AppTheme.playfairFamily,
                                         fontSize: 22,
@@ -595,7 +1026,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  'Place Order  •  ₹${cart.totalAmount.toStringAsFixed(2)}',
+                                  'Place Order  •  ₹${cart.finalAmount.toStringAsFixed(2)}',
                                   style: const TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w800,
@@ -614,7 +1045,68 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
+  Widget _buildLocationButton() {
+    return GestureDetector(
+      onTap: _isLocating ? null : _fetchCurrentLocation,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 16),
+        decoration: BoxDecoration(
+          color: _accent.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: _accent.withValues(alpha: 0.35),
+            width: 1.2,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (_isLocating)
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: _accent,
+                ),
+              )
+            else
+              const Icon(
+                Icons.my_location_rounded,
+                color: _accent,
+                size: 18,
+              ),
+            const SizedBox(width: 10),
+            Text(
+              _isLocating
+                  ? 'Detecting your location…'
+                  : 'Use my current location',
+              style: const TextStyle(
+                color: _accent,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (!_isLocating) ...[
+              const SizedBox(width: 6),
+              Text(
+                '(auto-fill pincode, city & state)',
+                style: TextStyle(
+                  color: _accent.withValues(alpha: 0.6),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSectionTitle(String title) {
+
     return Text(
       title,
       style: TextStyle(
@@ -728,5 +1220,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ),
       ],
     );
+  }
+
+  Map<int, String> _getMonthMap() {
+    return {
+      1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr',
+      5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Aug',
+      9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec',
+    };
   }
 }

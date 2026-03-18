@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
+import 'package:cloud_functions/cloud_functions.dart';
+import 'dart:async';
 import '../../../shared/models/product_model.dart';
 import '../../../shared/models/announcement_model.dart';
 import '../../../shared/models/order_model.dart';
+import '../../../shared/models/coupon_model.dart';
+import '../../../shared/models/alert_model.dart';
 
 /// Central admin provider managing products, announcements, orders, and alerts.
 class AdminProvider with ChangeNotifier {
@@ -9,245 +14,330 @@ class AdminProvider with ChangeNotifier {
   //  PRODUCTS
   // ═══════════════════════════════════════════════════════════════════════
 
-  final List<CatalogProduct> _products = [...CatalogProduct.all];
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instance;
+  final List<CatalogProduct> _products = [];
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _productsSub;
 
   List<CatalogProduct> get products => List.unmodifiable(_products);
 
-  void addProduct(CatalogProduct product) {
-    _products.insert(0, product);
-    notifyListeners();
+  AdminProvider() {
+    _listenProducts();
+    _listenCoupons();
+    _listenAnnouncements();
+    _listenOrders();
+    _listenAlerts();
   }
 
-  void updateProduct(String id, CatalogProduct updated) {
-    final idx = _products.indexWhere((p) => p.id == id);
-    if (idx != -1) {
-      _products[idx] = updated;
-      notifyListeners();
+  void _listenProducts() {
+    _productsSub?.cancel();
+    _productsSub = _firestore
+        .collection('products')
+        .orderBy('updatedAt', descending: true)
+        .snapshots()
+        .listen((snapshot) {
+          _products
+            ..clear()
+            ..addAll(
+              snapshot.docs.map((d) {
+                final data = d.data();
+                return CatalogProduct.fromMap(d.id, data);
+              }),
+            );
+          notifyListeners();
+        }, onError: (e) {
+          debugPrint('Error in products listener: $e');
+        });
+  }
+
+  Future<void> addProduct(CatalogProduct product) async {
+    await _firestore.collection('products').doc(product.id).set({
+      ...product.toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> updateProduct(String id, CatalogProduct updated) async {
+    await _firestore.collection('products').doc(id).set({
+      ...updated.toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> deleteProduct(String id) async {
+    await _firestore.collection('products').doc(id).delete();
+  }
+
+  String suggestDescription({
+    required String name,
+    required String category,
+    String? concern,
+  }) {
+    final cleanName = name.trim();
+    final cleanCat = category.trim();
+    final focus = (concern ?? '').trim();
+    final concernLine = focus.isNotEmpty
+        ? 'Specially formulated for $focus.'
+        : '';
+    return '$cleanName is a premium $cleanCat essential designed for daily use. '
+        'It offers lightweight, effective care with skin-friendly ingredients and quick absorption. '
+        '$concernLine Best suited for Indian weather and routines, this product delivers visible results with consistent use.';
+  }
+
+  Future<String> suggestDescriptionAi({
+    required String name,
+    required String category,
+    String? concern,
+  }) async {
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable(
+        'suggestProductDescription',
+      );
+      final result = await callable.call({
+        'name': name,
+        'category': category,
+        'concern': concern,
+      });
+      final data = result.data;
+      if (data is Map && data['description'] is String) {
+        final value = (data['description'] as String).trim();
+        if (value.isNotEmpty) return value;
+      }
+    } catch (_) {
+      // Fallback to deterministic suggestion if function is unavailable.
     }
+    return suggestDescription(name: name, category: category, concern: concern);
   }
 
-  void deleteProduct(String id) {
-    _products.removeWhere((p) => p.id == id);
-    notifyListeners();
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  COUPONS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  final List<Coupon> _coupons = [];
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _couponsSub;
+
+  List<Coupon> get coupons => List.unmodifiable(_coupons);
+
+  void _listenCoupons() {
+    _couponsSub?.cancel();
+    _couponsSub = _firestore
+        .collection('coupons')
+        .orderBy('updatedAt', descending: true)
+        .snapshots()
+        .listen((snapshot) {
+          _coupons
+            ..clear()
+            ..addAll(
+              snapshot.docs.map((d) {
+                final data = d.data();
+                return Coupon.fromMap(d.id, data);
+              }),
+            );
+          notifyListeners();
+        }, onError: (e) {
+          debugPrint('Error in coupons listener: $e');
+        });
+  }
+
+  Future<void> addCoupon(Coupon coupon) async {
+    await _firestore.collection('coupons').doc(coupon.id).set({
+      ...coupon.toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> updateCoupon(String id, Coupon updated) async {
+    await _firestore.collection('coupons').doc(id).set({
+      ...updated.toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> deleteCoupon(String id) async {
+    await _firestore.collection('coupons').doc(id).delete();
   }
 
   // ═══════════════════════════════════════════════════════════════════════
   //  ANNOUNCEMENTS
   // ═══════════════════════════════════════════════════════════════════════
 
-  final List<Announcement> _announcements = [
-    Announcement(
-      id: 'ann_1',
-      title: '🎉 Grand New Arrivals!',
-      subtitle: 'Fresh stock just landed at JGS',
-      body:
-          'We\'ve just received an exciting shipment of premium beauty products! Come visit our store or browse online to discover the latest from Lakme, Maybelline, L\'Oreal, and more.',
-      date: 'Mar 10, 2026',
-      tag: 'NEW ARRIVALS',
-      category: 'New Arrivals',
-      tagColor: const Color(0xFF4CAF50),
-      icon: Icons.new_releases_outlined,
-      imageUrl:
-          'https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=800',
-    ),
-    Announcement(
-      id: 'ann_2',
-      title: '💄 Lakme Festive Collection',
-      subtitle: 'Exclusive festive shades now available',
-      body:
-          'The much-awaited Lakme festive collection has arrived! Explore stunning lipstick shades, eye palettes, and nail colors.',
-      date: 'Mar 8, 2026',
-      tag: 'EXCLUSIVE',
-      category: 'New Arrivals',
-      tagColor: const Color(0xFFB76E79),
-      icon: Icons.auto_awesome_outlined,
-      imageUrl:
-          'https://images.unsplash.com/photo-1631214524020-7e18db9a8f92?w=800',
-    ),
-    Announcement(
-      id: 'ann_3',
-      title: '🧴 Buy 2 Get 1 Free — Skincare',
-      subtitle: 'Special offer on all skincare products',
-      body:
-          'This week only! Buy any 2 skincare products and get 1 absolutely free. Valid on Biotique, Mamaearth, Himalaya, and more.',
-      date: 'Mar 5, 2026',
-      tag: 'OFFER',
-      category: 'Offers',
-      tagColor: const Color(0xFFFF9800),
-      icon: Icons.local_offer_outlined,
-      imageUrl:
-          'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=800',
-    ),
-    Announcement(
-      id: 'ann_4',
-      title: '🚚 Free Home Delivery Update',
-      subtitle: 'Now delivering to more areas!',
-      body:
-          'Free home delivery is now available for orders above ₹500 across the entire city.',
-      date: 'Mar 1, 2026',
-      tag: 'UPDATE',
-      category: 'Updates',
-      tagColor: const Color(0xFF2196F3),
-      icon: Icons.local_shipping_outlined,
-    ),
-    Announcement(
-      id: 'ann_5',
-      title: '✨ Store Renovation Complete',
-      subtitle: 'New look, same trusted service',
-      body:
-          'Our store has a brand new look! Visit us to experience a more spacious, well-organized shopping space.',
-      date: 'Feb 25, 2026',
-      tag: 'NEWS',
-      category: 'News',
-      tagColor: const Color(0xFF9C27B0),
-      icon: Icons.storefront_outlined,
-    ),
-  ];
+  // ═══════════════════════════════════════════════════════════════════════
+  //  ANNOUNCEMENTS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  final List<Announcement> _announcements = [];
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _announcementsSub;
 
   List<Announcement> get announcements => List.unmodifiable(_announcements);
 
-  void addAnnouncement(Announcement a) {
-    _announcements.insert(0, a);
-    notifyListeners();
-  }
-
-  void updateAnnouncement(String id, Announcement updated) {
-    final idx = _announcements.indexWhere((a) => a.id == id);
-    if (idx != -1) {
-      _announcements[idx] = updated;
+  void _listenAnnouncements() {
+    _announcementsSub?.cancel();
+    _announcementsSub = _firestore
+        .collection('announcements')
+        .orderBy('updatedAt', descending: true)
+        .snapshots()
+        .listen((snapshot) {
+      _announcements
+        ..clear()
+        ..addAll(
+          snapshot.docs.map((d) => Announcement.fromMap(d.id, d.data())),
+        );
       notifyListeners();
-    }
+    }, onError: (e) {
+      debugPrint('Error in announcements listener: $e');
+    });
   }
 
-  void deleteAnnouncement(String id) {
-    _announcements.removeWhere((a) => a.id == id);
-    notifyListeners();
+  Future<void> addAnnouncement(Announcement a) async {
+    await _firestore.collection('announcements').doc(a.id).set({
+      ...a.toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> updateAnnouncement(String id, Announcement updated) async {
+    await _firestore.collection('announcements').doc(id).set({
+      ...updated.toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> deleteAnnouncement(String id) async {
+    await _firestore.collection('announcements').doc(id).delete();
   }
 
   // ═══════════════════════════════════════════════════════════════════════
   //  ORDERS
   // ═══════════════════════════════════════════════════════════════════════
 
-  final List<Order> _orders = [
-    Order(
-      id: 'JGS-10234',
-      customerName: 'Priya Sharma',
-      phone: '9876543210',
-      address: '45, MG Road, Near Temple',
-      pincode: '452001',
-      city: 'Indore',
-      total: 1299,
-      date: 'Mar 8, 2026',
-      status: 'Delivered',
-      items: [
-        const OrderLineItem(
-          name: 'Lakme 9to5 Primer + Matte Lipstick',
-          qty: 1,
-          price: 649,
-        ),
-        const OrderLineItem(
-          name: 'Maybelline Fit Me Foundation',
-          qty: 1,
-          price: 650,
-        ),
-      ],
-    ),
-    Order(
-      id: 'JGS-10235',
-      customerName: 'Ritu Jain',
-      phone: '9988776655',
-      address: '12, Nehru Nagar, Block B',
-      pincode: '452002',
-      city: 'Indore',
-      total: 875,
-      date: 'Mar 9, 2026',
-      status: 'Pending',
-      items: [
-        const OrderLineItem(
-          name: 'L\'Oreal Hyaluron Shampoo',
-          qty: 1,
-          price: 475,
-        ),
-        const OrderLineItem(name: 'Nivea Soft Cream', qty: 2, price: 200),
-      ],
-    ),
-    Order(
-      id: 'JGS-10236',
-      customerName: 'Ankit Verma',
-      phone: '8877665544',
-      address: '78, Vijay Nagar, Scheme 54',
-      pincode: '452010',
-      city: 'Indore',
-      total: 2150,
-      date: 'Mar 10, 2026',
-      status: 'Confirmed',
-      items: [
-        const OrderLineItem(
-          name: 'Forest Essentials Night Cream',
-          qty: 1,
-          price: 1900,
-        ),
-        const OrderLineItem(name: 'Biotique Face Wash', qty: 1, price: 250),
-      ],
-    ),
-  ];
+  // ═══════════════════════════════════════════════════════════════════════
+  //  ORDERS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  final List<Order> _orders = [];
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _ordersSub;
 
   List<Order> get orders => List.unmodifiable(_orders);
 
-  void updateOrderStatus(String id, String status) {
-    final idx = _orders.indexWhere((o) => o.id == id);
-    if (idx != -1) {
-      _orders[idx].status = status;
+  void _listenOrders() {
+    _ordersSub?.cancel();
+    _ordersSub = _firestore
+        .collection('orders')
+        .orderBy('date', descending: true)
+        .snapshots()
+        .listen((snapshot) {
+      if (snapshot.docs.isEmpty && _orders.isEmpty) {
+        _initializeDefaultOrders();
+      }
+      _orders
+        ..clear()
+        ..addAll(snapshot.docs.map((d) => Order.fromMap(d.id, d.data())));
       notifyListeners();
+    }, onError: (e) {
+      if (e.toString().contains('permission-denied')) return;
+      debugPrint('Error in orders listener: $e');
+    });
+  }
+
+  Future<void> _initializeDefaultOrders() async {
+    final batch = _firestore.batch();
+    final defaults = [
+      Order(
+        id: 'JGS-10234',
+        userId: '',
+        customerName: 'Priya Sharma',
+        phone: '9876543210',
+        address: '45, MG Road, Near Temple',
+        pincode: '452001',
+        city: 'Indore',
+        total: 1299,
+        date: 'Mar 8, 2026',
+        status: 'Delivered',
+        items: [
+          const OrderLineItem(name: 'Lakme 9to5 Primer + Matte Lipstick', qty: 1, price: 649),
+          const OrderLineItem(name: 'Maybelline Fit Me Foundation', qty: 1, price: 650),
+        ],
+      ),
+    ];
+    for (var o in defaults) {
+      batch.set(_firestore.collection('orders').doc(o.id), {
+        ...o.toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     }
+    await batch.commit();
+  }
+
+  Future<void> updateOrderStatus(String id, String status) async {
+    await _firestore.collection('orders').doc(id).update({'status': status});
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  USERS / MEMBERSHIP
+  // ═══════════════════════════════════════════════════════════════════════
+
+  Future<void> toggleMembership(String userId, bool isMember) async {
+    await _firestore.collection('users').doc(userId).set({
+      'isMember': isMember,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   // ═══════════════════════════════════════════════════════════════════════
   //  SMS / ALERTS LOG
   // ═══════════════════════════════════════════════════════════════════════
 
-  final List<SmsAlert> _sentAlerts = [
-    SmsAlert(
-      id: 'sms_1',
-      title: 'New Arrivals Alert',
-      message:
-          'Hi! New beauty products just arrived at JGS. Visit us or browse online. Use code BEAUTY10 for 10% off!',
-      sentTo: 'All Customers',
-      sentAt: 'Mar 10, 2026 - 10:30 AM',
-      type: 'Promotional',
-    ),
-    SmsAlert(
-      id: 'sms_2',
-      title: 'Order Shipped',
-      message: 'Your order JGS-10234 has been shipped! Track: bit.ly/jgs10234',
-      sentTo: 'Priya Sharma (+91-9876543210)',
-      sentAt: 'Mar 8, 2026 - 2:15 PM',
-      type: 'Transactional',
-    ),
-  ];
+  final List<SmsAlert> _sentAlerts = [];
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _alertsSub;
 
   List<SmsAlert> get sentAlerts => List.unmodifiable(_sentAlerts);
 
-  void sendAlert(SmsAlert alert) {
-    _sentAlerts.insert(0, alert);
-    notifyListeners();
+  void _listenAlerts() {
+    _alertsSub?.cancel();
+    _alertsSub = _firestore
+        .collection('alerts')
+        .orderBy('updatedAt', descending: true)
+        .snapshots()
+        .listen((snapshot) {
+      _sentAlerts
+        ..clear()
+        ..addAll(snapshot.docs.map((d) => SmsAlert.fromMap(d.id, d.data())));
+      notifyListeners();
+    }, onError: (e) {
+      if (e.toString().contains('permission-denied')) return;
+      debugPrint('Error in alerts listener: $e');
+    });
   }
-}
 
-class SmsAlert {
-  final String id;
-  final String title;
-  final String message;
-  final String sentTo;
-  final String sentAt;
-  final String type; // Promotional, Transactional, Offer
+  Future<void> sendAlert(SmsAlert alert) async {
+    // 1. Log to history (handled by cloud function as well, but we can do it locally for immediate UI)
+    // Actually, let's just call the function and let it handle everything.
+    try {
+      final callable = _functions.httpsCallable('sendBulkAlert');
+      final result = await callable.call({
+        'title': alert.title,
+        'message': alert.message,
+        'sentTo': alert.sentTo,
+        'type': alert.type,
+      });
 
-  const SmsAlert({
-    required this.id,
-    required this.title,
-    required this.message,
-    required this.sentTo,
-    required this.sentAt,
-    required this.type,
-  });
+      if (result.data['success'] == true) {
+        debugPrint('Bulk alert sent successfully: ${result.data['summary']}');
+      }
+    } catch (e) {
+      debugPrint('Error sending bulk alert: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  void dispose() {
+    _productsSub?.cancel();
+    _couponsSub?.cancel();
+    _announcementsSub?.cancel();
+    _ordersSub?.cancel();
+    _alertsSub?.cancel();
+    super.dispose();
+  }
 }

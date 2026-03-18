@@ -1,3 +1,38 @@
+class ProductVariant {
+  final String id;
+  final String sizeLabel;
+  final double mrp;
+  final double sellingPrice;
+
+  const ProductVariant({
+    required this.id,
+    required this.sizeLabel,
+    required this.mrp,
+    required this.sellingPrice,
+  });
+
+  int get discountPct {
+    if (mrp <= 0 || sellingPrice >= mrp) return 0;
+    return ((1 - (sellingPrice / mrp)) * 100).round();
+  }
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'sizeLabel': sizeLabel,
+    'mrp': mrp,
+    'sellingPrice': sellingPrice,
+  };
+
+  factory ProductVariant.fromMap(Map<String, dynamic> map) {
+    return ProductVariant(
+      id: map['id'] as String? ?? '',
+      sizeLabel: map['sizeLabel'] as String? ?? '',
+      mrp: (map['mrp'] as num?)?.toDouble() ?? 0,
+      sellingPrice: (map['sellingPrice'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}
+
 class CatalogProduct {
   final String id;
   final String name;
@@ -9,7 +44,9 @@ class CatalogProduct {
   final String? brand;
   final String? category;
   final String? concern;
+  final String? description;
   final List<String> tags;
+  final List<ProductVariant> variants;
 
   const CatalogProduct({
     required this.id,
@@ -22,8 +59,68 @@ class CatalogProduct {
     this.brand,
     this.category,
     this.concern,
+    this.description,
     this.tags = const [],
+    this.variants = const [],
   });
+
+  double get effectivePrice =>
+      variants.isNotEmpty ? variants.first.sellingPrice : price;
+
+  double? get effectiveOriginalPrice {
+    if (variants.isNotEmpty) {
+      final mrp = variants.first.mrp;
+      return mrp > 0 ? mrp : null;
+    }
+    return originalPrice;
+  }
+
+  int get effectiveDiscountPct {
+    final o = effectiveOriginalPrice;
+    final p = effectivePrice;
+    if (o == null || o <= 0 || p >= o) return 0;
+    return ((1 - p / o) * 100).round();
+  }
+
+  Map<String, dynamic> toMap() => {
+    'name': name,
+    'price': price,
+    'originalPrice': originalPrice,
+    'rating': rating,
+    'image': image,
+    'subtitle': subtitle,
+    'brand': brand,
+    'category': category,
+    'concern': concern,
+    'description': description,
+    'tags': tags,
+    'variants': variants.map((v) => v.toMap()).toList(),
+    'updatedAt': DateTime.now().toIso8601String(),
+  };
+
+  factory CatalogProduct.fromMap(String id, Map<String, dynamic> map) {
+    final rawVariants = map['variants'] as List<dynamic>? ?? const [];
+    return CatalogProduct(
+      id: id,
+      name: map['name'] as String? ?? '',
+      price: (map['price'] as num?)?.toDouble() ?? 0,
+      originalPrice: (map['originalPrice'] as num?)?.toDouble(),
+      rating: (map['rating'] as num?)?.toDouble() ?? 4.5,
+      image: map['image'] as String? ?? '',
+      subtitle: map['subtitle'] as String?,
+      brand: map['brand'] as String?,
+      category: map['category'] as String?,
+      concern: map['concern'] as String?,
+      description: map['description'] as String?,
+      tags: (map['tags'] as List<dynamic>? ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+      variants: rawVariants
+          .whereType<Map>()
+          .map((e) => ProductVariant.fromMap(Map<String, dynamic>.from(e)))
+          .toList(),
+    );
+  }
 
   static const bestsellers = [
     CatalogProduct(

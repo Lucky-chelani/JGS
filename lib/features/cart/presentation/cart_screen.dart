@@ -3,6 +3,9 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import '../providers/cart_provider.dart';
+import '../../admin/providers/admin_provider.dart';
+import '../../auth/providers/auth_provider.dart';
+import '../../../shared/models/coupon_model.dart';
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -13,8 +16,6 @@ class CartScreen extends StatefulWidget {
 
 class _CartScreenState extends State<CartScreen> {
   final _couponController = TextEditingController();
-  String? _appliedCoupon;
-  double _couponDiscount = 0;
   String? _couponError;
 
   static const _bg = Color(0xFFFDF8F5);
@@ -24,37 +25,42 @@ class _CartScreenState extends State<CartScreen> {
   static const _accent = Color(0xFFB76E79);
   static const _accentLight = Color(0xFFE8B4B8);
 
-  // Dummy coupons
-  static const Map<String, double> _coupons = {
-    'BEAUTY10': 10,
-    'JGS20': 20,
-    'FIRST50': 50,
-  };
+  // Removed dummy coupons
 
   void _applyCoupon() {
     final code = _couponController.text.trim().toUpperCase();
     if (code.isEmpty) return;
-    final discount = _coupons[code];
-    if (discount != null) {
+
+    final cart = Provider.of<CartProvider>(context, listen: false);
+    final admin = Provider.of<AdminProvider>(context, listen: false);
+
+    final coupon = admin.coupons.firstWhere(
+      (c) => c.code.toUpperCase() == code && c.isActive,
+      orElse: () => const Coupon(id: '', code: '', discountAmount: 0),
+    );
+
+    if (coupon.id.isNotEmpty) {
+      if (cart.totalAmount < coupon.minOrderAmount) {
+        setState(() {
+          _couponError = 'Min order for this coupon is ₹${coupon.minOrderAmount.toStringAsFixed(0)}';
+        });
+        return;
+      }
+      cart.applyCoupon(coupon);
+      _couponController.clear();
       setState(() {
-        _appliedCoupon = code;
-        _couponDiscount = discount;
         _couponError = null;
       });
     } else {
       setState(() {
-        _couponError = 'Invalid coupon code';
-        _appliedCoupon = null;
-        _couponDiscount = 0;
+        _couponError = 'Invalid or inactive coupon';
       });
     }
   }
 
   void _removeCoupon() {
+    Provider.of<CartProvider>(context, listen: false).removeCoupon();
     setState(() {
-      _appliedCoupon = null;
-      _couponDiscount = 0;
-      _couponController.clear();
       _couponError = null;
     });
   }
@@ -149,9 +155,15 @@ class _CartScreenState extends State<CartScreen> {
     CartProvider cart,
     double top,
   ) {
+    final auth = Provider.of<AuthProvider>(context);
+    
+    // Sync membership status with CartProvider
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      cart.setPremiumMember(auth.profile.isMember);
+    });
+    
     final subtotal = cart.totalAmount;
-    final discount = _couponDiscount;
-    final total = (subtotal - discount).clamp(0, double.infinity);
+    final total = cart.finalAmount;
 
     return Column(
       children: [
@@ -278,7 +290,7 @@ class _CartScreenState extends State<CartScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      if (_appliedCoupon != null)
+                      if (cart.appliedCoupon != null)
                         Container(
                           padding: const EdgeInsets.symmetric(
                             vertical: 14,
@@ -308,7 +320,7 @@ class _CartScreenState extends State<CartScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      _appliedCoupon!,
+                                      cart.appliedCoupon!.code,
                                       style: const TextStyle(
                                         color: Color(0xFF4CAF50),
                                         fontSize: 15,
@@ -318,7 +330,7 @@ class _CartScreenState extends State<CartScreen> {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      '₹${_couponDiscount.toStringAsFixed(0)} off applied',
+                                      '₹${cart.couponDiscountAmount.toStringAsFixed(0)} off applied',
                                       style: TextStyle(
                                         color: const Color(
                                           0xFF4CAF50,
@@ -457,11 +469,19 @@ class _CartScreenState extends State<CartScreen> {
                               'FREE',
                               valueColor: const Color(0xFF4CAF50),
                             ),
-                            if (_couponDiscount > 0) ...[
+                            if (cart.memberDiscountAmount > 0) ...[
                               const SizedBox(height: 12),
                               _buildPriceRow(
-                                'Coupon ($_appliedCoupon)',
-                                '-₹${discount.toStringAsFixed(2)}',
+                                'Member Discount (10%)',
+                                '-₹${cart.memberDiscountAmount.toStringAsFixed(2)}',
+                                valueColor: const Color(0xFF4CAF50),
+                              ),
+                            ],
+                            if (cart.couponDiscountAmount > 0) ...[
+                              const SizedBox(height: 12),
+                              _buildPriceRow(
+                                'Coupon (${cart.appliedCoupon?.code})',
+                                '-₹${cart.couponDiscountAmount.toStringAsFixed(2)}',
                                 valueColor: const Color(0xFF4CAF50),
                               ),
                             ],
@@ -708,6 +728,18 @@ class _CartItemCard extends StatelessWidget {
                     height: 1.3,
                   ),
                 ),
+                if (item.variantLabel != null && item.variantLabel!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      item.variantLabel!,
+                      style: TextStyle(
+                        color: textSecondary.withValues(alpha: 0.65),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 6),
                 Text(
                   '₹${item.price.toStringAsFixed(2)}',
@@ -768,10 +800,11 @@ class _CartItemCard extends StatelessWidget {
                     ),
                     GestureDetector(
                       onTap: () => cart.addItem(
-                        productId,
+                        item.productId,
                         item.title,
                         item.price,
                         item.imageUrl,
+                        variantLabel: item.variantLabel,
                       ),
                       child: const Padding(
                         padding: EdgeInsets.all(8),

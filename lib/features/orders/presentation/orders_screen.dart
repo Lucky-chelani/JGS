@@ -1,52 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../providers/orders_provider.dart';
+import '../../../shared/models/order_model.dart' as models;
 
-class OrdersScreen extends StatelessWidget {
+class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
 
+  @override
+  State<OrdersScreen> createState() => _OrdersScreenState();
+}
+
+class _OrdersScreenState extends State<OrdersScreen> {
   static const _bg = Color(0xFFFDF8F5);
   static const _textPrimary = Color(0xFF2D1B20);
   static const _textSecondary = Color(0xFF5A3A40);
   static const _border = Color(0xFFE8D5D0);
   static const _accent = Color(0xFFB76E79);
 
-  // Dummy orders for display
-  static final List<_Order> _orders = [
-    _Order(
-      id: 'JGS-10234',
-      date: 'Mar 8, 2026',
-      status: 'Delivered',
-      statusColor: const Color(0xFF4CAF50),
-      total: 1299.0,
-      items: [
-        _OrderItem('Lakme 9to5 Primer + Matte Lipstick', 1, 649.0),
-        _OrderItem('Maybelline Fit Me Foundation', 1, 650.0),
-      ],
-    ),
-    _Order(
-      id: 'JGS-10198',
-      date: 'Mar 3, 2026',
-      status: 'Shipped',
-      statusColor: const Color(0xFF2196F3),
-      total: 875.0,
-      items: [
-        _OrderItem('L\'Oreal Paris Hyaluron Moisture Shampoo', 1, 475.0),
-        _OrderItem('Nivea Soft Cream', 2, 400.0),
-      ],
-    ),
-    _Order(
-      id: 'JGS-10152',
-      date: 'Feb 22, 2026',
-      status: 'Delivered',
-      statusColor: const Color(0xFF4CAF50),
-      total: 2150.0,
-      items: [
-        _OrderItem('Biotique Bio Papaya Face Wash', 1, 250.0),
-        _OrderItem('Forest Essentials Night Cream', 1, 1900.0),
-      ],
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<OrdersProvider>(context, listen: false).fetchMyOrders();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -102,23 +81,44 @@ class OrdersScreen extends StatelessWidget {
 
           // ── Orders list ──
           Expanded(
-            child: _orders.isEmpty
-                ? _buildEmptyState(context)
-                : SingleChildScrollView(
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 600),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-                          child: Column(
-                            children: _orders
-                                .map((order) => _OrderCard(order: order))
-                                .toList(),
-                          ),
+            child: Consumer<OrdersProvider>(
+              builder: (context, provider, child) {
+                if (provider.loading) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: _accent),
+                  );
+                }
+
+                if (provider.error != null) {
+                  return Center(
+                    child: Text(
+                      provider.error!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  );
+                }
+
+                if (provider.orders.isEmpty) {
+                  return _buildEmptyState(context);
+                }
+
+                return SingleChildScrollView(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 600),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                        child: Column(
+                          children: provider.orders
+                              .map((order) => _OrderCard(order: order))
+                              .toList(),
                         ),
                       ),
                     ),
                   ),
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -189,38 +189,10 @@ class OrdersScreen extends StatelessWidget {
   }
 }
 
-// ── Models ──
-
-class _Order {
-  final String id;
-  final String date;
-  final String status;
-  final Color statusColor;
-  final double total;
-  final List<_OrderItem> items;
-
-  const _Order({
-    required this.id,
-    required this.date,
-    required this.status,
-    required this.statusColor,
-    required this.total,
-    required this.items,
-  });
-}
-
-class _OrderItem {
-  final String name;
-  final int qty;
-  final double price;
-
-  const _OrderItem(this.name, this.qty, this.price);
-}
-
 // ── Order Card Widget ──
 
 class _OrderCard extends StatelessWidget {
-  final _Order order;
+  final models.Order order;
 
   const _OrderCard({required this.order});
 
@@ -230,24 +202,41 @@ class _OrderCard extends StatelessWidget {
   static const _accent = Color(0xFFB76E79);
   static const _accentLight = Color(0xFFE8B4B8);
 
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'delivered':
+        return const Color(0xFF4CAF50);
+      case 'shipped':
+        return const Color(0xFF2196F3);
+      case 'cancelled':
+        return Colors.red;
+      default:
+        return _accent;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _border.withValues(alpha: 0.5)),
-        boxShadow: [
-          BoxShadow(
-            color: _accentLight.withValues(alpha: 0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
+    return GestureDetector(
+      onTap: () {
+        context.push('/order-details', extra: order);
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _border.withValues(alpha: 0.5)),
+          boxShadow: [
+            BoxShadow(
+              color: _accentLight.withValues(alpha: 0.06),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
           // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
@@ -299,13 +288,13 @@ class _OrderCard extends StatelessWidget {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: order.statusColor.withValues(alpha: 0.1),
+                    color: _getStatusColor(order.status).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     order.status,
                     style: TextStyle(
-                      color: order.statusColor,
+                      color: _getStatusColor(order.status),
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                     ),
@@ -413,6 +402,6 @@ class _OrderCard extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ));
   }
 }
